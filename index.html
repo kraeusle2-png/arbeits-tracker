@@ -104,24 +104,98 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        const firebaseConfig = JSON.parse(__firebase_config);
+
+        // Fallback für GitHub/Vercel falls Umgebungsvariablen fehlen
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'markus-land-v1';
-        let user = null; let flaechen = [];
-        const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } };
-        onAuthStateChanged(auth, (u) => { user = u; if (user) { onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'flaechen'), (s) => { flaechen = s.docs.map(d => ({ id: d.id, ...d.data() })); render(); }); } });
+
+        let user = null; 
+        let flaechen = [];
+
+        const initAuth = async () => { 
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { 
+                    await signInWithCustomToken(auth, __initial_auth_token); 
+                } else { 
+                    await signInAnonymously(auth); 
+                }
+            } catch (e) { console.error("Auth failed", e); }
+        };
+
+        onAuthStateChanged(auth, (u) => { 
+            user = u; 
+            if (user) { 
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'flaechen'), (s) => { 
+                    flaechen = s.docs.map(d => ({ id: d.id, ...d.data() })); 
+                    render(); 
+                }, (err) => console.error("Firestore error", err)); 
+            } 
+        });
+
         initAuth();
-        window.showQR = () => { const url = window.location.href.split('?')[0]; document.getElementById('clean-url-box').value = url; const qrEl = document.getElementById('qrcode'); qrEl.innerHTML = ''; new QRCode(qrEl, { text: url, width: 180, height: 180 }); document.getElementById('qr-modal').classList.remove('hidden'); };
-        window.copyCleanLink = () => { const el = document.getElementById('clean-url-box'); el.select(); document.execCommand('copy'); const t = document.getElementById("copy-toast"); t.className = "show"; setTimeout(() => { t.className = ""; }, 2500); };
-        window.addFlaeche = async () => { const name = document.getElementById('n-name').value; if (!name || !user) return; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'flaechen'), { name, location: document.getElementById('n-loc').value, order: parseInt(document.getElementById('n-ord').value) || 99, day: parseInt(document.getElementById('n-day').value), gemaeht: false, geschwadet: false, abgefahren: false }); document.getElementById('n-name').value = ''; };
-        window.toggleStatus = async (id, field) => { const f = flaechen.find(x => x.id === id); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'flaechen', id), { [field]: !f[field] }); };
-        window.deleteFlaeche = async (id) => { if(confirm('Löschen?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'flaechen', id)); };
+
+        window.showQR = () => { 
+            const url = window.location.href.split('?')[0]; 
+            document.getElementById('clean-url-box').value = url; 
+            const qrEl = document.getElementById('qrcode'); 
+            qrEl.innerHTML = ''; 
+            new QRCode(qrEl, { text: url, width: 180, height: 180 }); 
+            document.getElementById('qr-modal').classList.remove('hidden'); 
+        };
+
+        window.copyCleanLink = () => { 
+            const el = document.getElementById('clean-url-box'); 
+            el.select(); 
+            document.execCommand('copy'); 
+            const t = document.getElementById("copy-toast"); 
+            t.className = "show"; 
+            setTimeout(() => { t.className = ""; }, 2500); 
+        };
+
+        window.addFlaeche = async () => { 
+            const name = document.getElementById('n-name').value; 
+            if (!name || !user) return; 
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'flaechen'), { 
+                name, 
+                location: document.getElementById('n-loc').value, 
+                order: parseInt(document.getElementById('n-ord').value) || 99, 
+                day: parseInt(document.getElementById('n-day').value), 
+                gemaeht: false, 
+                geschwadet: false, 
+                abgefahren: false 
+            }); 
+            document.getElementById('n-name').value = ''; 
+        };
+
+        window.toggleStatus = async (id, field) => { 
+            const f = flaechen.find(x => x.id === id); 
+            if (!user) return;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'flaechen', id), { [field]: !f[field] }); 
+        };
+
+        window.deleteFlaeche = async (id) => { 
+            if(confirm('Löschen?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'flaechen', id)); 
+        };
+
         window.render = () => {
             const cont = document.getElementById('job-list');
-            const flocs = document.getElementById('f-loc').value; const fstat = document.getElementById('f-stat').value;
-            const fd1 = document.getElementById('f-d1').checked; const fd2 = document.getElementById('f-d2').checked;
+            if (!cont) return;
+            const flocs = document.getElementById('f-loc').value; 
+            const fstat = document.getElementById('f-stat').value;
+            const fd1 = document.getElementById('f-d1').checked; 
+            const fd2 = document.getElementById('f-d2').checked;
+            
             const filtered = flaechen.filter(f => {
                 if (flocs !== 'ALL' && f.location !== flocs) return false;
                 if (!((f.day == 1 && fd1) || (f.day == 2 && fd2))) return false;
@@ -129,6 +203,7 @@
                 if (fstat === 'TODO' && f.abgefahren) return false;
                 return true;
             }).sort((a,b) => a.day - b.day || a.order - b.order);
+
             cont.innerHTML = filtered.map(f => `
                 <div class="bg-white p-4 rounded-xl border flex flex-col md:flex-row gap-4 relative shadow-sm card">
                     <div class="absolute top-0 left-0 bg-blue-600 text-white font-bold px-3 py-1 rounded-br-lg text-[9px] uppercase">${f.location}</div>
@@ -145,6 +220,7 @@
                 </div>
             `).join('');
         };
+
         function btn(f, field, icon, label) {
             const active = f[field];
             return `<button onclick="toggleStatus('${f.id}', '${field}')" class="flex flex-col items-center py-3 rounded-lg border-2 ${active ? 'bg-green-50 border-green-500 text-green-700' : 'bg-white border-gray-100 text-gray-400'}">
